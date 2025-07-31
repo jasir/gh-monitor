@@ -1,0 +1,234 @@
+#!/bin/bash
+
+# GitHub Actions My Jobs Monitor
+# Sleduje nové joby spuštěné aktuálním uživatelem a automaticky je monitoruje
+
+set -e
+
+# Barvy
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Pomocné funkce
+show_help() {
+    echo "GitHub Actions My Jobs Monitor"
+    echo ""
+    echo "Usage: $0 [options]"
+    echo ""
+    echo "Volby:"
+    echo "  -i, --interval SEC  Interval kontroly v sekundách (výchozí: 30)"
+    echo "  -r, --repo REPO     Repository ve formátu owner/repo (výchozí: všechny)"
+    echo "  -q, --quiet         Tichý režim"
+    echo "  -h, --help          Zobrazí tuto nápovědu"
+    echo ""
+    echo "Příklady:"
+    echo "  $0"
+    echo "  $0 --interval 15"
+    echo "  $0 --repo KosikGroup/web-frontend"
+}
+
+notify() {
+    local title="$1"
+    local message="$2"
+    
+    echo "🔔 $title: $message"
+    
+    if command -v notify-send >/dev/null 2>&1 && [[ -n "$DISPLAY" ]]; then
+        notify-send -t 8000 -u "normal" "$title" "$message" 2>/dev/null || true
+    fi
+}
+
+get_current_user() {
+    gh api user --jq '.login' 2>/dev/null || echo ""
+}
+
+get_my_runs() {
+    local repo="$1"
+    
+    if [[ -n "$repo" ]]; then
+        gh run list --repo "$repo" --limit 50 --json databaseId,status,name,headBranch,event,createdAt \
+            --jq ".[] | select(.status == \"in_progress\" or .status == \"queued\" or .status == \"waiting\")"
+    else
+        # Získání všech repozitářů uživatele a organizací
+        local repos=$(gh repo list --limit 100 --json nameWithOwner --jq '.[].nameWithOwner' 2>/dev/null)
+        
+        if [[ -n "$repos" ]]; then
+            echo "$repos" | while read -r repo_name; do
+                [[ -n "$repo_name" ]] && gh run list --repo "$repo_name" --limit 10 --json databaseId,status,name,headBranch,event,createdAt \
+                    --jq ".[] | select(.status == \"in_progress\" or .status == \"queued\" or .status == \"waiting\")" 2>/dev/null || true
+            done
+        fi
+    fi
+}
+
+start_monitoring() {
+    local run_id="$1"
+    local repo="$2"
+    local workflow_name="$3"
+    
+    local monitor_args=(
+        "$run_id"
+        "--interval" "5"
+        "--timeout" "120"
+    )
+    
+    [[ -n "$repo" ]] && monitor_args+=("--repo" "$repo")
+    
+    # Spuštění na pozadí
+    nohup gh-monitor "${monitor_args[@]}" > "/tmp/gh-monitor-${run_id}.log" 2>&1 &
+    local pid=$!
+    
+    echo "$pid" > "/tmp/gh-monitor-${run_id}.pid"
+    echo "🚀 Spuštěn monitoring pro run $run_id (PID: $pid)"
+    
+    notify "🔄 Nový GitHub Action" "Workflow: $workflow_name\nRun ID: $run_id\nMonitoring spuštěn"
+}
+
+cleanup_all() {
+    echo "🛡️  Ukončuji všechny monitory..."
+    
+    # Ukončení všech spouštěných gh-monitor procesů
+    for pid_file in /tmp/gh-monitor-*.pid; do
+        [[ -f "$pid_file" ]] || continue
+        
+        local pid=$(cat "$pid_file" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            echo "  📴 Ukončuji monitor PID $pid"
+            kill "$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null
+        fi
+        rm -f "$pid_file"
+        
+        local run_id=$(basename "$pid_file" .pid | sed 's/gh-monitor-//')
+        rm -f "/tmp/gh-monitor-${run_id}.log"
+        rm -f "/tmp/gh-monitor-${run_id}-waiting"
+    done
+    
+    echo "🛡️  Cleanup dokončen"
+}
+
+cleanup_finished_monitors() {
+    for pid_file in /tmp/gh-monitor-*.pid; do
+        [[ -f "$pid_file" ]] || continue
+        
+        local pid=$(cat "$pid_file" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$pid_file"
+            local run_id=$(basename "$pid_file" .pid | sed 's/gh-monitor-//')
+            rm -f "/tmp/gh-monitor-${run_id}.log"
+        fi
+    done
+}
+
+main() {
+    local interval=30
+    local repo=""
+    local quiet=false
+    
+    # Parsování argumentů
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            -i|--interval)
+                interval="$2"
+                shift 2
+                ;;
+            -r|--repo)
+                repo="$2"
+                shift 2
+                ;;
+            -q|--quiet)
+                quiet=true
+                shift
+                ;;
+            *)
+                echo "Neznámý parametr: $1"
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Kontrola závislostí
+    if ! command -v gh >/dev/null 2>&1; then
+        echo "Chyba: GitHub CLI není nainstalované"
+        exit 1
+    fi
+    
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "Chyba: jq není nainstalované"
+        exit 1
+    fi
+    
+    if ! command -v gh-monitor >/dev/null 2>&1; then
+        echo "Chyba: gh-monitor script není dostupný"
+        exit 1
+    fi
+    
+    if ! gh auth status >/dev/null 2>&1; then
+        echo "Chyba: Nejste přihlášeni do GitHub CLI"
+        exit 1
+    fi
+    
+    echo "👤 Sledování jobů pro aktuálního uživatele"
+    [[ -n "$repo" ]] && echo "📁 Repository: $repo"
+    echo "⏱️  Interval: ${interval}s"
+    echo "🔍 Sledování začíná..."
+    echo ""
+    
+    local check_count=0
+    
+    # Hlavní smyčka
+    while true; do
+        check_count=$((check_count + 1))
+        
+        if [[ "$quiet" == false ]]; then
+            echo "📊 Kontrola #$check_count ($(date '+%H:%M:%S'))"
+        fi
+        
+        # Cleanup ukončených monitorů
+        cleanup_finished_monitors
+        
+        # Získání běžících jobů
+        local my_runs
+        if ! my_runs=$(get_my_runs "$repo" 2>/dev/null); then
+            echo "❌ Chyba při získávání seznamu jobů"
+            sleep "$interval"
+            continue
+        fi
+        
+        if [[ -n "$my_runs" ]]; then
+            echo "$my_runs" | jq -r '. | "\(.databaseId)|\(.name)|\(.status)"' 2>/dev/null | while IFS='|' read -r run_id name status; do
+                [[ -n "$run_id" ]] || continue
+                
+                # Kontrola, zda už není monitorován
+                if [[ ! -f "/tmp/gh-monitor-${run_id}.pid" ]] && [[ ! -f "/tmp/gh-monitor-${run_id}-waiting" ]]; then
+                    if [[ "$quiet" == false ]]; then
+                        echo "  🆕 Nový job: $name (ID: $run_id, Status: $status)"
+                    fi
+                    start_monitoring "$run_id" "$repo" "$name"
+                elif [[ "$quiet" == false ]]; then
+                    echo "  ✅ Již monitorován: $name (ID: $run_id)"
+                fi
+            done
+        elif [[ "$quiet" == false ]]; then
+            echo "  💤 Žádné běžící joby"
+        fi
+        
+        if [[ "$quiet" == false ]]; then
+            echo ""
+        fi
+        
+        sleep "$interval"
+    done
+}
+
+# Zpracování signálů pro čisté ukončení
+trap 'cleanup_all; echo "🚫 Ukončujem..."; exit 0' SIGINT SIGTERM
+
+# Spuštění
+main "$@"
