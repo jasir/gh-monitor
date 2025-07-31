@@ -15,19 +15,36 @@ NC='\033[0m'
 # Pomocné funkce
 show_help() {
     echo "GitHub Actions My Jobs Monitor"
+    echo "Sleduje běžící workflow runs aktuálního uživatele a automaticky je monitoruje"
     echo ""
     echo "Usage: $0 [options]"
     echo ""
+    echo "🎯 Automatická detekce repozitáře:"
+    echo "  - Při spuštění z git repozitáře automaticky detekuje GitHub repo z 'git remote'"
+    echo "  - Sleduje pouze joby spuštěné aktuálním uživatelem"
+    echo "  - Lze přepsat explicitním zadáním --repo"
+    echo ""
     echo "Volby:"
     echo "  -i, --interval SEC  Interval kontroly v sekundách (výchozí: 30)"
-    echo "  -r, --repo REPO     Repository ve formátu owner/repo (výchozí: všechny)"
+    echo "  -r, --repo REPO     Repository ve formátu owner/repo"
+    echo "                      Pokud není zadáno, detekuje z aktuálního git repo"
     echo "  -q, --quiet         Tichý režim"
     echo "  -h, --help          Zobrazí tuto nápovědu"
     echo ""
     echo "Příklady:"
-    echo "  $0"
-    echo "  $0 --interval 15"
+    echo "  # Automatická detekce z aktuálního adresáře"
+    echo "  cd ~/můj-projekt && $0"
+    echo ""
+    echo "  # Konkrétní repozitář"
     echo "  $0 --repo KosikGroup/web-frontend"
+    echo ""
+    echo "  # Rychlé monitorování s vlastním intervalem"
+    echo "  $0 --interval 15 --quiet"
+    echo ""
+    echo "💡 Tipy:"
+    echo "  - Spusťte z adresáře vašeho projektu pro automatickou detekci"
+    echo "  - Najde pouze joby, které jste spustili vy"
+    echo "  - Ideální pro monitorování CI/CD při práci na features"
 }
 
 get_current_user() {
@@ -217,8 +234,26 @@ main() {
         exit 1
     fi
     
-    echo "👤 Sledování jobů pro aktuálního uživatele"
-    [[ -n "$repo" ]] && echo "📁 Repository: $repo"
+    local current_user
+    current_user=$(get_current_user)
+    
+    echo "👤 Sledování jobů pro uživatele: $current_user"
+    
+    # Detekce repozitáře pro zobrazení
+    local display_repo="$repo"
+    if [[ -z "$display_repo" ]]; then
+        display_repo=$(detect_current_repo 2>/dev/null || echo "")
+        if [[ -n "$display_repo" ]]; then
+            echo "🔍 Detekován repozitář: $display_repo"
+        else
+            echo "❌ Žádný repozitář nebyl specifikován ani detekován"
+            echo "💡 Spusťte z git repozitáře nebo použijte --repo owner/repo"
+            exit 1
+        fi
+    else
+        echo "📁 Repository: $display_repo"
+    fi
+    
     echo "⏱️  Interval: ${interval}s"
     echo "🔍 Sledování začíná..."
     echo ""
