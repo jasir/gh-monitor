@@ -25,7 +25,7 @@ show_help() {
     echo "  - Lze přepsat explicitním zadáním --repo"
     echo ""
     echo "Volby:"
-    echo "  -i, --interval SEC  Interval kontroly v sekundách (výchozí: 30)"
+    echo "  -i, --interval SEC  Interval kontroly v sekundách (výchozí: 10)"
     echo "  -r, --repo REPO     Repository ve formátu owner/repo"
     echo "                      Pokud není zadáno, detekuje z aktuálního git repo"
     echo "  -q, --quiet         Tichý režim"
@@ -54,11 +54,19 @@ get_current_user() {
 notify() {
     local title="$1"
     local message="$2"
+    local url="${3:-}"
     
     echo "🔔 $title: $message"
+    if [[ -n "$url" ]]; then
+        echo "🔗 $url"
+    fi
     
     if command -v notify-send >/dev/null 2>&1 && [[ -n "$DISPLAY" ]]; then
-        notify-send -t 8000 -u "normal" "$title" "$message" 2>/dev/null || true
+        local clean_message="$message"
+        if [[ -n "$url" ]]; then
+            clean_message="$message\n\n🔗 Zobrazit: $url"
+        fi
+        notify-send -t 8000 -u "normal" "$title" "$clean_message" 2>/dev/null || true
     fi
 }
 
@@ -129,6 +137,14 @@ start_monitoring() {
     local repo="$2"
     local workflow_name="$3"
     
+    # Získání URL pro run
+    local url=""
+    if [[ -n "$repo" ]]; then
+        url=$(gh run view "$run_id" --repo "$repo" --json url --jq '.url' 2>/dev/null || echo "")
+    else
+        url=$(gh run view "$run_id" --json url --jq '.url' 2>/dev/null || echo "")
+    fi
+    
     local monitor_args=(
         "$run_id"
         "--interval" "5"
@@ -144,7 +160,7 @@ start_monitoring() {
     echo "$pid" > "/tmp/gh-monitor-${run_id}.pid"
     echo "🚀 Spuštěn monitoring pro run $run_id (PID: $pid)"
     
-    notify "🔄 Nový GitHub Action" "Workflow: $workflow_name\nRun ID: $run_id\nMonitoring spuštěn"
+    notify "🔄 Nový GitHub Action" "Workflow: **$workflow_name**\nRun ID: $run_id\nMonitoring spuštěn" "$url"
 }
 
 cleanup_all() {
@@ -183,7 +199,7 @@ cleanup_finished_monitors() {
 }
 
 main() {
-    local interval=30
+    local interval=10
     local repo=""
     local quiet=false
     

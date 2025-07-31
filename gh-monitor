@@ -23,7 +23,7 @@ show_help() {
     echo ""
     echo "Volby:"
     echo "  -r, --repo REPO     Repository ve formátu owner/repo (výchozí: aktuální repo)"
-    echo "  -i, --interval SEC  Interval kontroly v sekundách (výchozí: 30)"
+    echo "  -i, --interval SEC  Interval kontroly v sekundách (výchozí: 10)"
     echo "  -t, --timeout MIN   Timeout v minutách (výchozí: 60)"
     echo "  -q, --quiet         Tichý režim - pouze konečná notifikace"
     echo "  -h, --help          Zobrazí tuto nápovědu"
@@ -39,11 +39,15 @@ notify() {
     local title="$1"
     local message="$2"
     local urgency="${3:-normal}"
+    local url="${4:-}"
     
     echo ""
     echo "🔔 ========================================"
     echo "   $title"
     echo "   $message"
+    if [[ -n "$url" ]]; then
+        echo "   🔗 $url"
+    fi
     echo "========================================"
     echo ""
     
@@ -51,6 +55,11 @@ notify() {
     if command -v notify-send >/dev/null 2>&1 && [[ -n "$DISPLAY" ]]; then
         # Odebrání escape sekvencí pro čistý text v notifikaci
         local clean_message=$(echo -e "$message" | sed 's/\\033\[[0-9;]*m//g')
+        
+        # Přidání URL do notifikace pokud existuje
+        if [[ -n "$url" ]]; then
+            clean_message="$clean_message\n\n🔗 Zobrazit: $url"
+        fi
         
         # Persistent notifikace pro critical a completion
         if [[ "$urgency" == "critical" ]] || [[ "$urgency" == "completion" ]]; then
@@ -199,7 +208,7 @@ format_time() {
 main() {
     local run_id=""
     local repo=""
-    local interval=30
+    local interval=10
     local timeout=3600  # 60 minut v sekundách
     local quiet=false
     
@@ -312,10 +321,10 @@ main() {
         # Kontrola změny stavu z waiting
         if [[ "$status" != "waiting" ]] && [[ -f "/tmp/gh-monitor-${run_id}-waiting" ]]; then
             rm -f "/tmp/gh-monitor-${run_id}-waiting"
-            notify "🔔 GitHub Action pokračuje" "Workflow: $name\nZměna ze stavu čekání\nRun ID: $run_id" "normal"
+            notify "🔔 GitHub Action pokračuje" "Workflow: **$name**\nZměna ze stavu čekání\nRun ID: $run_id" "normal" "$url"
         elif [[ "$status" == "waiting" ]] && [[ ! -f "/tmp/gh-monitor-${run_id}-waiting" ]]; then
             touch "/tmp/gh-monitor-${run_id}-waiting"
-            notify "⏸️ GitHub Action čeká" "Workflow: $name\nPotřebuje akci uživatele\nRun ID: $run_id\nURL: $url" "critical"
+            notify "⏸️ GitHub Action čeká" "Workflow: **$name**\nPotřebuje akci uživatele\nRun ID: $run_id" "critical" "$url"
         fi
         
         # Kontrola, zda je run dokončen
@@ -325,30 +334,30 @@ main() {
             case "$conclusion" in
                 "success")
                     local title="✅ GitHub Action ÚSPĚŠNÁ"
-                    local message="Workflow: $name\nDoba běhu: $duration\nRun ID: $run_id"
-                    notify "$title" "$message" "completion"
+                    local message="Workflow: **$name**\nDoba běhu: $duration\nRun ID: $run_id"
+                    notify "$title" "$message" "completion" "$url"
                     echo "🎉 Workflow dokončena úspěšně!"
                     exit 0
                     ;;
                 "failure")
                     local title="❌ GitHub Action SELHALA"
-                    local message="Workflow: $name\nDoba běhu: $duration\nRun ID: $run_id\nURL: $url"
-                    notify "$title" "$message" "completion"
+                    local message="Workflow: **$name**\nDoba běhu: $duration\nRun ID: $run_id"
+                    notify "$title" "$message" "completion" "$url"
                     echo "💥 Workflow selhala!"
                     echo "🔗 Zobrazit na GitHubu: $url"
                     exit 1
                     ;;
                 "cancelled")
                     local title="🚫 GitHub Action ZRUŠENA"
-                    local message="Workflow: $name\nDoba běhu: $duration\nRun ID: $run_id"
-                    notify "$title" "$message" "completion"
+                    local message="Workflow: **$name**\nDoba běhu: $duration\nRun ID: $run_id"
+                    notify "$title" "$message" "completion" "$url"
                     echo "⏹️  Workflow byla zrušena"
                     exit 2
                     ;;
                 *)
                     local title="⚠️ GitHub Action dokončena"
-                    local message="Workflow: $name\nStav: $conclusion\nDoba běhu: $duration\nRun ID: $run_id"
-                    notify "$title" "$message" "completion"
+                    local message="Workflow: **$name**\nStav: $conclusion\nDoba běhu: $duration\nRun ID: $run_id"
+                    notify "$title" "$message" "completion" "$url"
                     echo "❓ Workflow dokončena s neočekávaným stavem: $conclusion"
                     exit 3
                     ;;

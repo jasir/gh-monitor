@@ -13,7 +13,7 @@ gh-monitor <run_id> [options]
 
 Options:
   -r, --repo REPO     Repository (owner/repo format)
-  -i, --interval SEC  Check interval in seconds (default: 30)
+  -i, --interval SEC  Check interval in seconds (default: 10)
   -t, --timeout MIN   Timeout in minutes (default: 60)
   -q, --quiet         Quiet mode - only final notification
   -h, --help          Show help
@@ -38,7 +38,7 @@ Automatically monitors running workflow runs for the current user and spawns gh-
 gh-monitor-my-jobs [options]
 
 Options:
-  -i, --interval SEC  Check interval in seconds (default: 30)
+  -i, --interval SEC  Check interval in seconds (default: 10)
   -r, --repo REPO     Repository to monitor (owner/repo format)
                       If not specified, auto-detects from current git repo
   -q, --quiet         Quiet mode
