@@ -30,6 +30,10 @@ show_help() {
     echo "  $0 --repo KosikGroup/web-frontend"
 }
 
+get_current_user() {
+    gh api user --jq '.login' 2>/dev/null || echo ""
+}
+
 notify() {
     local title="$1"
     local message="$2"
@@ -41,26 +45,65 @@ notify() {
     fi
 }
 
-get_current_user() {
-    gh api user --jq '.login' 2>/dev/null || echo ""
+detect_current_repo() {
+    # Zkusí detekovat GitHub repozitář z git remote
+    if [[ -d ".git" ]] || git rev-parse --git-dir >/dev/null 2>&1; then
+        local remote_url
+        remote_url=$(git remote get-url origin 2>/dev/null || echo "")
+        
+        if [[ -n "$remote_url" ]]; then
+            # Parsování GitHub URL (ssh nebo https) a odstranění .git
+            if [[ "$remote_url" =~ github\.com[:/]([^/]+)/([^/]+)(\.git)?$ ]]; then
+                local repo_name="${BASH_REMATCH[2]}"
+                repo_name="${repo_name%.git}"  # Odstranění .git pokud existuje
+                echo "${BASH_REMATCH[1]}/${repo_name}"
+                return 0
+            fi
+        fi
+    fi
+    return 1
 }
 
 get_my_runs() {
     local repo="$1"
+    local current_user
     
-    if [[ -n "$repo" ]]; then
-        gh run list --repo "$repo" --limit 50 --json databaseId,status,name,headBranch,event,createdAt \
-            --jq ".[] | select(.status == \"in_progress\" or .status == \"queued\" or .status == \"waiting\")"
-    else
-        # Získání všech repozitářů uživatele a organizací
-        local repos=$(gh repo list --limit 100 --json nameWithOwner --jq '.[].nameWithOwner' 2>/dev/null)
-        
-        if [[ -n "$repos" ]]; then
-            echo "$repos" | while read -r repo_name; do
-                [[ -n "$repo_name" ]] && gh run list --repo "$repo_name" --limit 10 --json databaseId,status,name,headBranch,event,createdAt \
-                    --jq ".[] | select(.status == \"in_progress\" or .status == \"queued\" or .status == \"waiting\")" 2>/dev/null || true
-            done
+    # Získání aktuálního uživatele pro filtrování
+    current_user=$(get_current_user)
+    if [[ -z "$current_user" ]]; then
+        echo "❌ Nelze získat aktuálního uživatele" >&2
+        return 1
+    fi
+    
+    # Automatická detekce repozitáře, pokud není specifikován
+    if [[ -z "$repo" ]]; then
+        local detected_repo
+        detected_repo=$(detect_current_repo)
+        if [[ -n "$detected_repo" ]]; then
+            echo "🔍 Detekován repozitář: $detected_repo" >&2
+            repo="$detected_repo"
+        else
+            echo "❌ Žádný repozitář není specifikován a nepodařilo se detekovat z aktuálního adresáře" >&2
+            echo "💡 Použijte --repo owner/repo nebo spusťte script z git repozitáře" >&2
+            return 1
         fi
+    fi
+    
+    # Pro konkrétní repozitář - získáme všechny běžící runs a filtrujeme podle uživatele
+    local runs
+    runs=$(gh run list --repo "$repo" --limit 50 --json databaseId,status,name,headBranch,event,createdAt \
+        --jq ".[] | select(.status == \"in_progress\" or .status == \"queued\" or .status == \"waiting\")" 2>/dev/null)
+    
+    if [[ -n "$runs" ]]; then
+        echo "$runs" | jq -r '.databaseId' | while read -r run_id; do
+            if [[ -n "$run_id" ]]; then
+                local actor
+                actor=$(timeout 5 gh api "repos/$repo/actions/runs/$run_id" --jq '.actor.login' 2>/dev/null || echo "")
+                if [[ "$actor" == "$current_user" ]]; then
+                    echo "$runs" | jq "select(.databaseId == $run_id)"
+                fi
+            fi
+        done
     fi
 }
 
