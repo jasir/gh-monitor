@@ -160,7 +160,7 @@ start_monitoring() {
     echo "$pid" > "/tmp/gh-monitor-${run_id}.pid"
     echo "🚀 Spuštěn monitoring pro run $run_id (PID: $pid)"
     
-    notify "🔄 Nový GitHub Action" "Workflow: **$workflow_name**\nRun ID: $run_id\nMonitoring spuštěn" "$url"
+    notify "🔄 Nová GitHub Action" "Workflow: <b>$workflow_name</b>\nRun ID: $run_id\nMonitoring spuštěn" "$url"
 }
 
 cleanup_all() {

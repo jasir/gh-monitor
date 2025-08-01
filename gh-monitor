@@ -321,10 +321,10 @@ main() {
         # Kontrola změny stavu z waiting
         if [[ "$status" != "waiting" ]] && [[ -f "/tmp/gh-monitor-${run_id}-waiting" ]]; then
             rm -f "/tmp/gh-monitor-${run_id}-waiting"
-            notify "🔔 GitHub Action pokračuje" "Workflow: **$name**\nZměna ze stavu čekání\nRun ID: $run_id" "normal" "$url"
+            notify "🔔 GitHub Action pokračuje" "Workflow: <b>$name</b>\nZměna ze stavu čekání\nRun ID: $run_id" "normal" "$url"
         elif [[ "$status" == "waiting" ]] && [[ ! -f "/tmp/gh-monitor-${run_id}-waiting" ]]; then
             touch "/tmp/gh-monitor-${run_id}-waiting"
-            notify "⏸️ GitHub Action čeká" "Workflow: **$name**\nPotřebuje akci uživatele\nRun ID: $run_id" "critical" "$url"
+            notify "⏸️ GitHub Action čeká" "Workflow: <b>$name</b>\nPotřebuje akci uživatele\nRun ID: $run_id" "critical" "$url"
         fi
         
         # Kontrola, zda je run dokončen
@@ -334,14 +334,14 @@ main() {
             case "$conclusion" in
                 "success")
                     local title="✅ GitHub Action ÚSPĚŠNÁ"
-                    local message="Workflow: **$name**\nDoba běhu: $duration\nRun ID: $run_id"
+                    local message="Workflow: <b>$name</b>\nDoba běhu: <i>$duration</i>\nRun ID: $run_id"
                     notify "$title" "$message" "completion" "$url"
                     echo "🎉 Workflow dokončena úspěšně!"
                     exit 0
                     ;;
                 "failure")
                     local title="❌ GitHub Action SELHALA"
-                    local message="Workflow: **$name**\nDoba běhu: $duration\nRun ID: $run_id"
+                    local message="Workflow: <b>$name</b>\nDoba běhu: <i>$duration</i>\nRun ID: $run_id"
                     notify "$title" "$message" "completion" "$url"
                     echo "💥 Workflow selhala!"
                     echo "🔗 Zobrazit na GitHubu: $url"
@@ -349,14 +349,14 @@ main() {
                     ;;
                 "cancelled")
                     local title="🚫 GitHub Action ZRUŠENA"
-                    local message="Workflow: **$name**\nDoba běhu: $duration\nRun ID: $run_id"
+                    local message="Workflow: <b>$name</b>\nDoba běhu: <i>$duration</i>\nRun ID: $run_id"
                     notify "$title" "$message" "completion" "$url"
                     echo "⏹️  Workflow byla zrušena"
                     exit 2
                     ;;
                 *)
                     local title="⚠️ GitHub Action dokončena"
-                    local message="Workflow: **$name**\nStav: $conclusion\nDoba běhu: $duration\nRun ID: $run_id"
+                    local message="Workflow: <b>$name</b>\nStav: <u>$conclusion</u>\nDoba běhu: <i>$duration</i>\nRun ID: $run_id"
                     notify "$title" "$message" "completion" "$url"
                     echo "❓ Workflow dokončena s neočekávaným stavem: $conclusion"
                     exit 3
