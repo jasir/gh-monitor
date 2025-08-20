@@ -63,7 +63,9 @@ Examples:
 
 ## Features
 
-- 🔔 **Desktop notifications** with persistent critical alerts
+- 🔔 **Two-tier notification system**:
+  - **LOW notifications** (auto-hide after 5s): Successful routine tests/builds
+  - **NORMAL notifications** (persistent): Errors, approvals, production deploys, integration tests
 - 📊 **Real-time job status** with current running steps
 - ⏸️ **Waiting state detection** for approval workflows
 - 🎯 **Automatic monitoring** of new workflow runs
@@ -89,7 +91,10 @@ cd gh-monitor
 
 - **Auto-detection**: `gh-monitor-my-jobs` automatically detects GitHub repo from `git remote origin`
 - **User filtering**: Only monitors jobs triggered by the authenticated GitHub user
-- **Persistent notifications** require manual dismissal for critical events
+- **Smart notifications**: 
+  - LOW notifications (successful routine operations) auto-hide after 5 seconds
+  - NORMAL notifications (errors, approvals, production) require manual dismissal
+  - Intelligent categorization based on workflow name and status
 - **Temp files** in `/tmp/gh-monitor-*` track running monitors
 - **Clean shutdown**: Ctrl+C cleanly shuts down all child processes
 
