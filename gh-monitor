@@ -40,6 +40,7 @@ notify() {
     local message="$2"
     local urgency="${3:-normal}"
     local url="${4:-}"
+    local notification_type="${5:-normal}"  # low nebo normal
     
     echo ""
     echo "🔔 ========================================"
@@ -61,16 +62,25 @@ notify() {
             clean_message="$clean_message\n\n🔗 Zobrazit: $url"
         fi
         
-        # Persistent notifikace pro critical a completion
-        if [[ "$urgency" == "critical" ]] || [[ "$urgency" == "completion" ]]; then
+        # Rozhodování o typu notifikace
+        if [[ "$notification_type" == "low" ]]; then
+            # LOW notifikace - zmizí po 5 sekundách
+            if notify-send -t 5000 -u "normal" "$title" "$clean_message" 2>/dev/null; then
+                echo "📱 Low notifikace odeslána (zmizí za 5s)"
+            else
+                echo "⚠️  Desktop notifikace nedostupná (není GUI prostředí)"
+            fi
+        elif [[ "$urgency" == "critical" ]] || [[ "$urgency" == "completion" ]]; then
+            # NORMAL/CRITICAL notifikace - persistent, vyžadují ruční zavření
             if notify-send -t 0 -u "critical" "$title" "$clean_message" 2>/dev/null; then
                 echo "📱 Persistent notifikace odeslána (vyžaduje ruční zavření)"
             else
                 echo "⚠️  Desktop notifikace nedostupná (není GUI prostředí)"
             fi
         else
-            if notify-send -t 5000 -u "$urgency" "$title" "$clean_message" 2>/dev/null; then
-                echo "📱 Desktop notifikace odeslána"
+            # NORMAL notifikace - persistent
+            if notify-send -t 0 -u "normal" "$title" "$clean_message" 2>/dev/null; then
+                echo "📱 Normal notifikace odeslána (vyžaduje ruční zavření)"
             else
                 echo "⚠️  Desktop notifikace nedostupná (není GUI prostředí)"
             fi
@@ -84,6 +94,31 @@ notify() {
         paplay /usr/share/sounds/alsa/Front_Left.wav 2>/dev/null || true
     elif [[ "$urgency" == "critical" ]] && command -v beep >/dev/null 2>&1; then
         beep -f 800 -l 300 2>/dev/null || true
+    fi
+}
+
+# Funkce pro určení typu notifikace podle workflow a stavu
+get_notification_type() {
+    local workflow_name="$1"
+    local status="$2"
+    local conclusion="$3"
+    
+    # NORMAL (persistent) - vždy vyžadují pozornost
+    if [[ "$status" == "waiting" ]]; then
+        echo "normal"  # čeká na approval
+    elif [[ "$conclusion" == "failure" ]] || [[ "$conclusion" == "cancelled" ]] || [[ "$conclusion" == "timed_out" ]]; then
+        echo "normal"  # jakákoliv chyba
+    elif [[ "$workflow_name" =~ [Dd]eploy.*[Pp]rod|[Pp]roduction|[Pp]rod ]]; then
+        echo "normal"  # produkční deploy
+    elif [[ "$workflow_name" =~ [Ii]ntegr|[Ee]2[Ee]|[Aa]cceptance ]]; then
+        echo "normal"  # integrační/E2E testy
+    else
+        # LOW (auto-hide) - úspěšné běžné operace
+        if [[ "$conclusion" == "success" ]]; then
+            echo "low"  # úspěšné běžné testy/buildy
+        else
+            echo "normal"  # ostatní případy raději persistent
+        fi
     fi
 }
 
@@ -291,7 +326,7 @@ main() {
         
         # Kontrola timeout
         if [[ $elapsed -gt $timeout ]]; then
-            notify "GitHub Action Timeout" "Sledování run $run_id bylo ukončeno kvůli timeout" "critical"
+            notify "GitHub Action Timeout" "Sledování run $run_id bylo ukončeno kvůli timeout" "critical" "" "normal"
             exit 1
         fi
         
@@ -321,10 +356,11 @@ main() {
         # Kontrola změny stavu z waiting
         if [[ "$status" != "waiting" ]] && [[ -f "/tmp/gh-monitor-${run_id}-waiting" ]]; then
             rm -f "/tmp/gh-monitor-${run_id}-waiting"
-            notify "🔔 GitHub Action pokračuje" "Workflow: <b>$name</b>\nZměna ze stavu čekání\nRun ID: $run_id" "normal" "$url"
+            local notif_type=$(get_notification_type "$name" "$status" "$conclusion")
+            notify "🔔 GitHub Action pokračuje" "Workflow: <b>$name</b>\nZměna ze stavu čekání\nRun ID: $run_id" "normal" "$url" "$notif_type"
         elif [[ "$status" == "waiting" ]] && [[ ! -f "/tmp/gh-monitor-${run_id}-waiting" ]]; then
             touch "/tmp/gh-monitor-${run_id}-waiting"
-            notify "⏸️ GitHub Action čeká" "Workflow: <b>$name</b>\nPotřebuje akci uživatele\nRun ID: $run_id" "critical" "$url"
+            notify "⏸️ GitHub Action čeká" "Workflow: <b>$name</b>\nPotřebuje akci uživatele\nRun ID: $run_id" "critical" "$url" "normal"
         fi
         
         # Kontrola, zda je run dokončen
@@ -335,14 +371,16 @@ main() {
                 "success")
                     local title="✅ GitHub Action ÚSPĚŠNÁ"
                     local message="Workflow: <b>$name</b>\nDoba běhu: <i>$duration</i>\nRun ID: $run_id"
-                    notify "$title" "$message" "completion" "$url"
+                    local notif_type=$(get_notification_type "$name" "$status" "$conclusion")
+                    notify "$title" "$message" "completion" "$url" "$notif_type"
                     echo "🎉 Workflow dokončena úspěšně!"
                     exit 0
                     ;;
                 "failure")
                     local title="❌ GitHub Action SELHALA"
                     local message="Workflow: <b>$name</b>\nDoba běhu: <i>$duration</i>\nRun ID: $run_id"
-                    notify "$title" "$message" "completion" "$url"
+                    local notif_type=$(get_notification_type "$name" "$status" "$conclusion")
+                    notify "$title" "$message" "completion" "$url" "$notif_type"
                     echo "💥 Workflow selhala!"
                     echo "🔗 Zobrazit na GitHubu: $url"
                     exit 1
@@ -350,14 +388,16 @@ main() {
                 "cancelled")
                     local title="🚫 GitHub Action ZRUŠENA"
                     local message="Workflow: <b>$name</b>\nDoba běhu: <i>$duration</i>\nRun ID: $run_id"
-                    notify "$title" "$message" "completion" "$url"
+                    local notif_type=$(get_notification_type "$name" "$status" "$conclusion")
+                    notify "$title" "$message" "completion" "$url" "$notif_type"
                     echo "⏹️  Workflow byla zrušena"
                     exit 2
                     ;;
                 *)
                     local title="⚠️ GitHub Action dokončena"
                     local message="Workflow: <b>$name</b>\nStav: <u>$conclusion</u>\nDoba běhu: <i>$duration</i>\nRun ID: $run_id"
-                    notify "$title" "$message" "completion" "$url"
+                    local notif_type=$(get_notification_type "$name" "$status" "$conclusion")
+                    notify "$title" "$message" "completion" "$url" "$notif_type"
                     echo "❓ Workflow dokončena s neočekávaným stavem: $conclusion"
                     exit 3
                     ;;

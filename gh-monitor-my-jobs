@@ -55,6 +55,7 @@ notify() {
     local title="$1"
     local message="$2"
     local url="${3:-}"
+    local notification_type="${4:-low}"  # pro nové joby defaultně low
     
     echo "🔔 $title: $message"
     if [[ -n "$url" ]]; then
@@ -66,7 +67,15 @@ notify() {
         if [[ -n "$url" ]]; then
             clean_message="$message\n\n🔗 Zobrazit: $url"
         fi
-        notify-send -t 8000 -u "normal" "$title" "$clean_message" 2>/dev/null || true
+        
+        # Rozhodování o typu notifikace
+        if [[ "$notification_type" == "low" ]]; then
+            # LOW notifikace - zmizí po 5 sekundách
+            notify-send -t 5000 -u "normal" "$title" "$clean_message" 2>/dev/null || true
+        else
+            # NORMAL notifikace - persistent
+            notify-send -t 0 -u "normal" "$title" "$clean_message" 2>/dev/null || true
+        fi
     fi
 }
 
@@ -160,7 +169,7 @@ start_monitoring() {
     echo "$pid" > "/tmp/gh-monitor-${run_id}.pid"
     echo "🚀 Spuštěn monitoring pro run $run_id (PID: $pid)"
     
-    notify "🔄 Nová GitHub Action" "Workflow: <b>$workflow_name</b>\nRun ID: $run_id\nMonitoring spuštěn" "$url"
+    notify "🔄 Nová GitHub Action" "Workflow: <b>$workflow_name</b>\nRun ID: $run_id\nMonitoring spuštěn" "$url" "low"
 }
 
 cleanup_all() {
